@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { API_BASE } from '@/lib/utils'
 import DropZone from '@/components/upload/DropZone'
 import IngestionStatus, { type IngestJob } from '@/components/upload/IngestionStatus'
+import SessionHistory from '@/components/history/SessionHistory'
 
 export default function HomePage() {
   const router = useRouter()
@@ -99,6 +100,8 @@ export default function HomePage() {
           <IngestionStatus jobs={jobs} />
         </section>
       </div>
+
+      <SessionHistory />
     </main>
   )
 }
