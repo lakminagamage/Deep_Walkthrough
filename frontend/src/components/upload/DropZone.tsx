@@ -7,11 +7,12 @@ import { API_BASE, cn } from '@/lib/utils'
 import type { IngestJob } from './IngestionStatus'
 
 interface Props {
+  sessionId: string
   onIngestComplete: (docId: string) => void
   addJob: React.Dispatch<React.SetStateAction<IngestJob[]>>
 }
 
-export default function DropZone({ onIngestComplete, addJob }: Props) {
+export default function DropZone({ sessionId, onIngestComplete, addJob }: Props) {
   const [urlInput, setUrlInput] = useState('')
 
   const ingestFile = useCallback(
@@ -27,6 +28,7 @@ export default function DropZone({ onIngestComplete, addJob }: Props) {
       try {
         const form = new FormData()
         form.append('file', file)
+        form.append('session_id', sessionId)
         setStatus('embedding')
         const res = await fetch(`${API_BASE}/api/ingest`, { method: 'POST', body: form })
         if (!res.ok) throw new Error(await res.text())
@@ -65,6 +67,7 @@ export default function DropZone({ onIngestComplete, addJob }: Props) {
     try {
       const form = new FormData()
       form.append('url', url)
+      form.append('session_id', sessionId)
       setStatus('embedding')
       const res = await fetch(`${API_BASE}/api/ingest`, { method: 'POST', body: form })
       if (!res.ok) throw new Error(await res.text())

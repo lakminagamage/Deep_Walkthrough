@@ -17,6 +17,7 @@ async def ingest_document(
     request: Request,
     file: UploadFile | None = File(default=None),
     url: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
 ) -> dict:
     if not file and not url:
         raise HTTPException(status_code=400, detail="Provide 'file' or 'url'")
@@ -39,7 +40,7 @@ async def ingest_document(
             raise HTTPException(status_code=422, detail=f"Failed to fetch URL: {exc}")
 
     chunks = chunk_document(doc)
-    await embed_and_store(chunks, memory)
+    await embed_and_store(chunks, memory, session_id=session_id)
 
     return {
         "doc_id": doc.doc_id,

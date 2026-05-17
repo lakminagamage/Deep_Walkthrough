@@ -33,10 +33,22 @@ class LongTermMemory:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    async def query(self, collection: str, query: str, top_k: int = 10) -> list[dict]:
+    async def query(
+        self,
+        collection: str,
+        query: str,
+        top_k: int = 10,
+        session_id: str | None = None,
+    ) -> list[dict]:
         embeddings = await self._embed([query])
         col = await self._collection(collection)
-        results = await col.query(query_embeddings=embeddings, n_results=top_k)
+        kwargs: dict = {"query_embeddings": embeddings, "n_results": top_k}
+        if session_id:
+            kwargs["where"] = {"session_id": session_id}
+        try:
+            results = await col.query(**kwargs)
+        except Exception:
+            return []
 
         ids = results.get("ids", [[]])[0]
         docs = results.get("documents", [[]])[0]

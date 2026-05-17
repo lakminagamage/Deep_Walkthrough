@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_BASE } from '@/lib/utils'
 import DropZone from '@/components/upload/DropZone'
@@ -9,12 +9,13 @@ import SessionHistory from '@/components/history/SessionHistory'
 
 export default function HomePage() {
   const router = useRouter()
-  const [query, setQuery]             = useState('')
-  const [docIds, setDocIds]           = useState<string[]>([])
-  const [submitting, setSubmitting]   = useState(false)
-  const [jobs, setJobs]               = useState<IngestJob[]>([])
+  const [sessionId]                 = useState<string>(() => crypto.randomUUID())
+  const [query, setQuery]           = useState('')
+  const [docCount, setDocCount]     = useState(0)
+  const [submitting, setSubmitting] = useState(false)
+  const [jobs, setJobs]             = useState<IngestJob[]>([])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!query.trim()) return
     setSubmitting(true)
@@ -22,17 +23,13 @@ export default function HomePage() {
       const res = await fetch(`${API_BASE}/api/research`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ query: query.trim(), document_ids: docIds }),
+        body:    JSON.stringify({ query: query.trim(), session_id: sessionId }),
       })
       const data = await res.json()
       router.push(`/session/${data.session_id}`)
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const handleIngestComplete = (docId: string) => {
-    setDocIds(prev => [...prev, docId])
   }
 
   return (
@@ -59,17 +56,17 @@ export default function HomePage() {
             <textarea
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder={'e.g. "Evaluate the architectural trade-offs between video-centric generative world models and vector-quantized latent-state world action models in robotics. Specifically, investigate mechanisms to mitigate compounding predictive errors, resolve spatial-temporal inconsistencies in long-horizon reasoning, and overcome the scarcity of diverse real-world embodied interaction data."'}
+              placeholder={'e.g. "Evaluate the architectural trade-offs between video-centric generative world models and vector-quantized latent-state world action models in robotics."'}
               rows={6}
               className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-ink
                          placeholder-muted font-sans text-base resize-none
                          focus:outline-none focus:border-blue transition-colors"
             />
 
-            {docIds.length > 0 && (
+            {docCount > 0 && (
               <div className="text-sm font-mono text-dim bg-raised rounded-lg px-3 py-2 border border-border">
-                <span className="text-muted">Including </span>
-                {docIds.length} document{docIds.length > 1 ? 's' : ''}
+                <span className="text-muted">Knowledge base: </span>
+                {docCount} document{docCount > 1 ? 's' : ''} scoped to this session
               </div>
             )}
 
@@ -92,11 +89,15 @@ export default function HomePage() {
               Knowledge Base
             </h2>
             <p className="text-dim text-base leading-relaxed">
-              Upload PDFs or paste a URL to add documents to the retrieval store.
+              Upload PDFs or paste a URL. Documents are scoped to this session only.
             </p>
           </div>
 
-          <DropZone onIngestComplete={handleIngestComplete} addJob={setJobs} />
+          <DropZone
+            sessionId={sessionId}
+            onIngestComplete={() => setDocCount(c => c + 1)}
+            addJob={setJobs}
+          />
           <IngestionStatus jobs={jobs} />
         </section>
       </div>

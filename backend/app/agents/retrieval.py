@@ -9,11 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from app.config import MAX_RETRIEVAL_STEPS, MAX_TOOL_RETRIES, get_llm
 from app.graph.state import AgentState, SourceCandidate
 from app.tools.document import fetch_url
-from app.tools.retrieval import query_vector_store
+from app.tools.retrieval import make_vector_store_tool
 from app.tools.search import web_search
-
-_TOOLS = [web_search, query_vector_store, fetch_url]
-_TOOL_MAP = {t.name: t for t in _TOOLS}
 
 _SYSTEM = """\
 You are a research retrieval agent. Use tools to gather evidence for every sub-question.
@@ -74,15 +71,16 @@ def _parse_candidates(observation: str, seen_ids: set[str]) -> list[SourceCandid
 
 
 async def retrieval_node(state: AgentState) -> dict:
-    llm = get_llm("retrieval").bind_tools(_TOOLS)
+    vs_tool = make_vector_store_tool(state["session_id"])
+    tools = [web_search, vs_tool, fetch_url]
+    tool_map = {t.name: t for t in tools}
+    llm = get_llm("retrieval").bind_tools(tools)
+
     plan = state["research_plan"]
     sub_questions = plan["sub_questions"] if plan else [state["query"]]
-    document_ids = state.get("document_ids", [])
 
     sub_q_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(sub_questions))
     context = f"Main query: {state['query']}\n\nSub-questions:\n{sub_q_text}"
-    if document_ids:
-        context += f"\n\nPrioritise document IDs: {document_ids}"
 
     messages = [
         SystemMessage(content=_SYSTEM),
@@ -107,7 +105,7 @@ async def retrieval_node(state: AgentState) -> dict:
             name, args, call_id = tc["name"], tc["args"], tc["id"]
             scratchpad.append(f"[step {step + 1}] → {name}({json.dumps(args)})")
 
-            tool_fn = _TOOL_MAP.get(name)
+            tool_fn = tool_map.get(name)
             if tool_fn is None:
                 observation = f"ERROR: unknown tool '{name}'"
                 consecutive_errors += 1

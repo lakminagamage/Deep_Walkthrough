@@ -47,11 +47,11 @@ def build_graph(checkpointer: AsyncSqliteSaver):
     return g.compile(checkpointer=checkpointer)
 
 
-def make_initial_state(session_id: str, query: str, document_ids: list[str]) -> AgentState:
+def make_initial_state(session_id: str, query: str) -> AgentState:
     return {
         "session_id":           session_id,
         "query":                query,
-        "document_ids":         document_ids,
+        "document_ids":         [],
         "research_plan":        None,
         "hitl_plan_approved":   False,
         "source_candidates":    [],

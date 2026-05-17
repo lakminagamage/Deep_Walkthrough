@@ -52,6 +52,8 @@ export default function SessionHistory() {
       if (!res.ok) return
       const data = await res.json()
       setSessions(data.sessions ?? [])
+    } catch {
+      // backend not reachable — silently ignore
     } finally {
       setLoading(false)
       if (showSpinner) setSpinning(false)
