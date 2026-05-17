@@ -46,23 +46,50 @@ export default function ActiveSurface({
 
   // ── Session complete ───────────────────────────────────────────────────────
   if (complete) {
+    const score     = latestState?.critic_score ?? null
+    const abandoned = score !== null && score < 0.75
+
     return (
       <div className="flex flex-col items-center justify-center gap-5 h-full p-8 text-center">
-        <div className="w-10 h-10 rounded-full border-2 border-green flex items-center justify-center">
-          <span className="text-green text-base">✓</span>
+        <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center
+                         ${abandoned ? 'border-amber' : 'border-green'}`}>
+          <span className={`text-base ${abandoned ? 'text-amber' : 'text-green'}`}>
+            {abandoned ? '!' : '✓'}
+          </span>
         </div>
-        <p className="font-mono text-sm text-green uppercase tracking-wider">Research Complete</p>
-        {latestState?.critic_score !== null && latestState?.critic_score !== undefined && (
-          <p className="font-sans text-sm text-muted">
-            Critic score: <span className="text-ink font-mono">{latestState.critic_score.toFixed(2)}</span>
-          </p>
+
+        {abandoned ? (
+          <>
+            <p className="font-mono text-sm text-amber uppercase tracking-wider">Research Abandoned</p>
+            <p className="font-sans text-sm text-dim max-w-xs leading-relaxed">
+              The system couldn't find sufficient valid information for this query.
+            </p>
+            {score !== null && (
+              <p className="font-sans text-xs text-muted">
+                Best critic score: <span className="font-mono text-red">{score.toFixed(2)}</span>
+                {' '}(threshold 0.75)
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="font-mono text-sm text-green uppercase tracking-wider">Research Complete</p>
+            {score !== null && (
+              <p className="font-sans text-sm text-muted">
+                Critic score: <span className="text-ink font-mono">{score.toFixed(2)}</span>
+              </p>
+            )}
+          </>
         )}
+
         <Link
           href={`/report/${sessionId}`}
-          className="px-6 py-2.5 bg-green/10 border border-green/40 text-green
-                     font-mono text-sm rounded-lg hover:bg-green/20 transition-colors"
+          className={`px-6 py-2.5 border font-mono text-sm rounded-lg transition-colors
+                      ${abandoned
+                        ? 'bg-amber/10 border-amber/40 text-amber hover:bg-amber/20'
+                        : 'bg-green/10 border-green/40 text-green hover:bg-green/20'}`}
         >
-          Open Report →
+          {abandoned ? 'View Draft →' : 'Open Report →'}
         </Link>
       </div>
     )

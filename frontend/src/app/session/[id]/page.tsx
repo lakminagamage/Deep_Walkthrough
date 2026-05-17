@@ -45,15 +45,21 @@ export default function SessionPage({ params }: Props) {
               </span>
             </span>
           )}
-          {stream.complete && (
-            <button
-              onClick={() => router.push(`/report/${sessionId}`)}
-              className="px-4 py-1.5 bg-green/10 border border-green/40 text-green
-                         text-sm font-mono rounded-lg hover:bg-green/20 transition-colors"
-            >
-              View Report →
-            </button>
-          )}
+          {stream.complete && (() => {
+            const score     = stream.latestState?.critic_score ?? null
+            const abandoned = score !== null && score < 0.75
+            return (
+              <button
+                onClick={() => router.push(`/report/${sessionId}`)}
+                className={`px-4 py-1.5 border text-sm font-mono rounded-lg transition-colors
+                            ${abandoned
+                              ? 'bg-amber/10 border-amber/40 text-amber hover:bg-amber/20'
+                              : 'bg-green/10 border-green/40 text-green hover:bg-green/20'}`}
+              >
+                {abandoned ? 'View Draft →' : 'View Report →'}
+              </button>
+            )
+          })()}
         </div>
       </header>
 
