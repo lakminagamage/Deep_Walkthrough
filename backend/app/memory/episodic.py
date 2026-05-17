@@ -108,6 +108,15 @@ class EpisodicMemory:
                 rows = await cur.fetchall()
                 return [dict(r) for r in rows]
 
+    async def list_sessions(self, limit: int = 30) -> list[dict]:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+            ) as cur:
+                rows = await cur.fetchall()
+                return [dict(r) for r in rows]
+
     # ── HITL decisions ────────────────────────────────────────────────────────
 
     async def log_hitl_decision(
