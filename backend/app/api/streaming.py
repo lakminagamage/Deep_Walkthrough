@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.messages import HumanMessage, SystemMessage
 
 AGENT_NODES = {
     "supervisor",
@@ -93,6 +94,23 @@ class StreamEventCallback(AsyncCallbackHandler):
 
 # ── Background graph runner ───────────────────────────────────────────────────
 
+async def _generate_summary(query: str) -> str:
+    """Return a ≤10-word summary of the query using the LLM."""
+    try:
+        from app.config import get_llm
+        llm = get_llm("supervisor")
+        resp = await llm.ainvoke([
+            SystemMessage(content=(
+                "Summarise the research question in 10 words or fewer. "
+                "Be specific and descriptive. Output only the summary, no punctuation."
+            )),
+            HumanMessage(content=query),
+        ])
+        return str(resp.content).strip()
+    except Exception:
+        return query[:80]
+
+
 async def run_graph_background(
     *,
     graph,
@@ -109,6 +127,14 @@ async def run_graph_background(
     On HITL interrupt, returns WITHOUT sending None so the SSE connection
     stays alive and post-approval events flow through the same stream.
     """
+    # Generate and persist a human-readable summary for new sessions only.
+    from langgraph.types import Command as LGCommand
+    if not isinstance(initial_input, LGCommand):
+        query = (initial_input or {}).get("query", "")
+        if query:
+            summary = await _generate_summary(query)
+            await episodic.update_session_summary(session_id, summary)
+
     callback = StreamEventCallback(queue)
     run_config = {
         **config,

@@ -20,6 +20,16 @@ async def list_sessions(request: Request) -> dict:
     return {"sessions": sessions}
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request) -> dict:
+    episodic = request.app.state.episodic
+    session = await episodic.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await episodic.delete_session(session_id)
+    return {"deleted": session_id}
+
+
 @router.get("/session/{session_id}/stream")
 async def stream_session(session_id: str, request: Request) -> StreamingResponse:
     episodic = request.app.state.episodic

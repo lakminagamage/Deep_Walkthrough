@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Trash2 } from 'lucide-react'
 import { API_BASE, cn } from '@/lib/utils'
 
 interface Session {
   id: string
   query: string
+  summary: string | null
   status: 'running' | 'hitl_wait' | 'complete' | 'error'
   created_at: string
   completed_at: string | null
@@ -41,9 +42,10 @@ function timeAgo(iso: string): string {
 
 export default function SessionHistory() {
   const router = useRouter()
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [spinning, setSpinning] = useState(false)
+  const [sessions, setSessions]   = useState<Session[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [spinning, setSpinning]   = useState(false)
+  const [deleting, setDeleting]   = useState<string | null>(null)
 
   const load = async (showSpinner = false) => {
     if (showSpinner) setSpinning(true)
@@ -57,6 +59,18 @@ export default function SessionHistory() {
     } finally {
       setLoading(false)
       if (showSpinner) setSpinning(false)
+    }
+  }
+
+  const deleteSession = async (id: string) => {
+    setDeleting(id)
+    try {
+      await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' })
+      setSessions(prev => prev.filter(s => s.id !== id))
+    } catch {
+      // ignore
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -98,20 +112,22 @@ export default function SessionHistory() {
 
       <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
         {sessions.map(s => (
-          <button
+          <div
             key={s.id}
-            onClick={() => router.push(`/session/${s.id}`)}
-            className="flex items-center gap-4 px-5 py-4 text-left hover:bg-raised/60 transition-colors group"
+            className="flex items-center gap-4 px-5 py-4 hover:bg-raised/60 transition-colors group"
           >
             {/* ID */}
             <span className="font-mono text-xs text-muted shrink-0 w-20">
               {s.id.slice(0, 8)}
             </span>
 
-            {/* Query */}
-            <span className="font-sans text-sm text-ink flex-1 truncate group-hover:text-ink/90">
-              {s.query}
-            </span>
+            {/* Summary / query — clickable */}
+            <button
+              onClick={() => router.push(`/session/${s.id}`)}
+              className="font-sans text-sm text-ink flex-1 truncate text-left hover:text-blue transition-colors"
+            >
+              {s.summary ?? s.query}
+            </button>
 
             {/* Status badge */}
             <span className={cn(
@@ -126,16 +142,16 @@ export default function SessionHistory() {
               {timeAgo(s.created_at)}
             </span>
 
-            {/* Report shortcut */}
-            {s.status === 'complete' && s.report_id && (
-              <button
-                onClick={e => { e.stopPropagation(); router.push(`/session/${s.id}`) }}
-                className="font-mono text-xs text-blue hover:underline shrink-0"
-              >
-                report →
-              </button>
-            )}
-          </button>
+            {/* Delete */}
+            <button
+              onClick={() => deleteSession(s.id)}
+              disabled={deleting === s.id}
+              className="shrink-0 text-muted hover:text-red transition-colors disabled:opacity-40"
+              title="Delete session"
+            >
+              <Trash2 size={14} className={deleting === s.id ? 'animate-pulse' : ''} />
+            </button>
+          </div>
         ))}
       </div>
     </section>

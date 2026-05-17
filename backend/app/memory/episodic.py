@@ -11,6 +11,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
     query       TEXT NOT NULL,
+    summary     TEXT,
     status      TEXT NOT NULL,
     created_at  TIMESTAMP,
     completed_at TIMESTAMP,
@@ -48,6 +49,11 @@ class EpisodicMemory:
     async def init(self) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.executescript(_SCHEMA)
+            # Migrate existing tables that predate the summary column.
+            try:
+                await db.execute("ALTER TABLE sessions ADD COLUMN summary TEXT")
+            except Exception:
+                pass  # Column already exists
             await db.commit()
 
     # ── Sessions ──────────────────────────────────────────────────────────────
@@ -107,6 +113,20 @@ class EpisodicMemory:
             ) as cur:
                 rows = await cur.fetchall()
                 return [dict(r) for r in rows]
+
+    async def delete_session(self, session_id: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM hitl_decisions  WHERE session_id=?", (session_id,))
+            await db.execute("DELETE FROM session_events  WHERE session_id=?", (session_id,))
+            await db.execute("DELETE FROM sessions        WHERE id=?",         (session_id,))
+            await db.commit()
+
+    async def update_session_summary(self, session_id: str, summary: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE sessions SET summary=? WHERE id=?", (summary, session_id)
+            )
+            await db.commit()
 
     async def list_sessions(self, limit: int = 30) -> list[dict]:
         async with aiosqlite.connect(self._db_path) as db:
