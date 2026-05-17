@@ -1,4 +1,5 @@
 # Deep Walkthrough
+![Banner](/assets/banner.png)
 ### Research Intelligence System
 
 This repository contains a production-grade reference implementation of a multi-agent research system. It accepts a research question and optional documents, orchestrates planning, retrieval, analysis, synthesis, and critique, and produces a cited report with human-in-the-loop approvals.
