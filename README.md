@@ -1,138 +1,380 @@
 # Deep Walkthrough
 ![Banner](/assets/banner.png)
+
+<div align="center">
+
 ### Research Intelligence System
 
-This repository contains a production-grade reference implementation of a multi-agent research system. It accepts a research question and optional documents, orchestrates planning, retrieval, analysis, synthesis, and critique, and produces a cited report with human-in-the-loop approvals.
+**A production-grade, fully observable multi-agent reference implementation.**  
+Built to teach AI agent patterns correctly — by building one that actually works.
 
-Architecture
-------------
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-stateful_graph-1C3C3C?style=flat-square)](https://langchain-ai.github.io/langgraph)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-412991?style=flat-square&logo=openai&logoColor=white)](https://openai.com)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](./LICENSE)
 
-Backend (FastAPI + LangGraph):
-- Fully async graph execution with a single LLM factory.
-- Two approval gates: plan approval and source approval.
-- Tool layer with structured error-as-observation handling.
-- SSE event stream for live progress and state snapshots.
-- Long-term memory in ChromaDB, episodic memory in SQLite, and optional Redis LLM cache.
+ [Architecture](#architecture) · [Quick Start](#quick-start) · [API Reference](#api-reference) · [Contributing](#contributing)
 
-Frontend (Next.js):
-- Three-panel debug UI: event feed, active surface (HITL), and state inspector.
-- Report viewer with citation resolution and downloadable markdown.
+</div>
 
-Agent pipeline
---------------
-
-Supervisor -> Plan approval -> Retrieval -> Source approval -> Analysis -> Synthesis -> Critic
-If the critic score is below the threshold and revision limit allows it, the graph loops back to Synthesis.
-
-Data flow
----------
-
-1. Ingest PDF or URL
-	- Parse and chunk documents.
-	- Embed and store in ChromaDB.
-2. Retrieval
-	- Query vector store first, then web search and URL fetch as needed.
-	- Produce source candidates for approval.
-3. Analysis
-	- Extract claims and identify gaps from approved sources only.
-4. Synthesis
-	- Generate a markdown report with chunk-level citations.
-5. Critic
-	- Score and optionally request revisions.
-
-Repository structure
---------------------
-
-- backend/
-  - app/agents: multi-agent nodes
-  - app/tools: search, retrieval, document, and analysis tools
-  - app/graph: state schema, HITL gates, and graph assembly
-  - app/memory: ChromaDB and SQLite clients
-  - app/api: FastAPI routes and SSE streaming
-- frontend/
-  - app/: Next.js pages
-  - components/: debug UI and report viewer
-  - hooks/: SSE client hook
-
-API
 ---
 
-POST /api/research
-Request:
-```json
-{ "query": "...", "document_ids": ["..."] }
+## What This Is
+
+Most agent tutorials show you a chatbot that calls a tool. This is not that.
+
+This repository is a **complete, working reference implementation** of a multi-agent research system designed so every architectural decision is visible, inspectable, and learnable. You give it a research question; it plans, retrieves, analyses, synthesises, and critiques its way to a cited report, pausing twice for your approval before proceeding.
+
+Every agent exposes its full reasoning. Every graph state transition is streamed live to a developer debug UI. Every tool failure is handled as structured data, not a crash.
+
+---
+
+## What You'll Learn
+
+This codebase demonstrates six agent patterns, wired together in one coherent application:
+
+| Pattern | Where to look |
+|---|---|
+| **Tool use / function calling** | `app/tools/` — every tool follows the `ToolResult` contract |
+| **Memory (short-term, long-term, episodic)** | `app/graph/state.py`, `app/memory/long_term.py`, `app/memory/episodic.py` |
+| **Multi-agent orchestration** | `app/agents/` — supervisor + four specialised workers |
+| **Planning & reasoning loops (ReAct, CoT)** | `app/agents/retrieval.py` (ReAct), `app/agents/supervisor.py` (CoT) |
+| **RAG & hybrid retrieval** | `app/tools/retrieval.py` — dense + BM25 fusion + reranking |
+| **Human-in-the-loop approval flows** | `app/graph/hitl.py` — two interrupt gates via LangGraph |
+
+---
+
+## Architecture
+
+### Agent Pipeline
+
 ```
-Response:
-```json
-{ "session_id": "..." }
+┌───────────┐    Gate 1     ┌───────────┐    Gate 2     ┌───────────┐
+│ Supervisor│──────────────▶│ Retrieval │──────────────▶│ Analysis  │
+│  (CoT)    │  Plan review  │  (ReAct)  │ Source review │           │
+└───────────┘               └───────────┘               └─────┬─────┘
+                                                               │
+                                                        ┌──────▼──────┐
+                                              ┌─────────│  Synthesis  │◀──────────┐
+                                              │         └─────────────┘           │
+                                              │                                   │ score < threshold
+                                              │         ┌─────────────┐           │ AND revisions left
+                                              └────────▶│   Critic    │───────────┘
+                                                        └──────┬──────┘
+                                                               │ score ≥ threshold
+                                                               ▼
+                                                          Final Report
 ```
 
-GET /api/session/{id}/stream
-- Server-sent events with graph progress, tool calls, and state snapshots.
+**Gate 1 — Plan Approval:** The Supervisor decomposes the query into sub-questions and presents the plan. You approve, edit, or reject before any retrieval begins.
 
-POST /api/session/{id}/resume
-Request:
-```json
-{ "gate": "plan", "decision": { "action": "approve" } }
+**Gate 2 — Source Approval:** The Retrieval Agent surfaces its candidates with credibility scores. You deselect untrusted sources. Analysis and Synthesis only ever see what you approved.
+
+**Critic loop:** The Critic scores the draft report (0–1). If the score is below `CRITIC_PASS_THRESHOLD` and `MAX_REVISIONS` has not been reached, the graph routes back to Synthesis with structured feedback. This is a goal-conditioned loop, not a one-shot pipeline.
+
+---
+
+### Backend
+
 ```
-or
-```json
-{ "gate": "sources", "decision": { "approved_chunk_ids": ["..."] } }
+FastAPI (async)
+└── LangGraph stateful graph
+    ├── Supervisor          — CoT planner, decomposes query into sub-questions
+    ├── [HITL Gate 1]       — plan approval interrupt
+    ├── Retrieval Agent     — ReAct loop: web search + session-scoped vector store
+    ├── [HITL Gate 2]       — source approval interrupt
+    ├── Analysis Agent      — claim extraction + gap identification
+    ├── Synthesis Agent     — markdown report with chunk-level citations
+    └── Critic Agent        — scores draft, triggers revision loop if needed
 ```
 
-POST /api/ingest
-- Multipart upload with PDF file or a URL form field.
+**Memory layers:**
 
-GET /api/documents
-- Returns ingested document IDs and metadata.
+- **Short-term** — `AgentState` TypedDict, shared across all nodes in a run.
+- **Long-term** — ChromaDB vector store, session-scoped (each session's documents are isolated by `session_id` metadata filter — no cross-session leakage).
+- **Episodic** — SQLite log of sessions, HITL decisions, and per-step events. Gives the system a queryable history.
 
-GET /api/report/{id}
-- Returns the final report and resolved citations.
+**Key design decisions:**
 
-Configuration
--------------
+- Fully async — every node is `async def`, every I/O client is async. No sync blocking in the event loop.
+- Single LLM via `get_llm(agent_id)` factory — swap models per agent in `config.py` without touching agent code.
+- `ToolResult` contract — tools never raise exceptions. Errors are structured observations the agent reasons about.
+- Full reasoning exposure — every agent's scratchpad is stored in `AgentState`. Nothing is discarded.
+- Redis LLM cache — responses are cached by `sha256(model + prompt)`. Flush with `make flush-cache` for a fresh run.
+- LangGraph SQLite checkpointer — full graph state is persisted across HTTP requests, enabling HITL across disconnected sessions.
 
-Create a .env file (see .env.example). Required keys:
-- OPENAI_API_KEY
-- TAVILY_API_KEY
+---
 
-Optional settings include cache, retrieval, and critic thresholds.
+### Frontend
 
-Local development
------------------
+Three-panel developer debug UI built in Next.js — designed for information density, not aesthetics.
 
-Prerequisites:
+```
+┌────────────────────┬──────────────────────┬────────────────────┐
+│  Agent Progress    │   Active Surface     │  State Inspector   │
+│  Feed (SSE)        │                      │                    │
+│                    │  • Tool outputs      │  Live AgentState   │
+│  Timeline of       │  • HITL Gate 1       │  JSON tree         │
+│  every graph step  │  • HITL Gate 2       │                    │
+│  colour-coded      │  • Report preview    │  Diffs highlighted │
+│  per agent         │                      │  after each node   │
+│                    │                      │                    │
+└────────────────────┴──────────────────────┴────────────────────┘
+```
+
+The SSE stream is the single source of truth for UI state — no polling, no refetching. Every graph node emits a `state_snapshot` event so the State Inspector updates in real time.
+
+---
+
+### Infrastructure
+
+| Service | Image | Purpose |
+|---|---|---|
+| `backend` | Python 3.12-slim | FastAPI + LangGraph, hot reload |
+| `frontend` | Node 20-alpine | Next.js dev server, hot reload |
+| `chromadb` | `chromadb/chroma` | Vector store (HTTP mode) |
+| `redis` | `redis:7-alpine` | LLM response cache |
+
+SQLite is a file — no separate container. Mounted as a named volume on the backend.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
 - Docker and Docker Compose
+- An OpenAI API key
+- A Tavily API key ([free tier available](https://tavily.com))
 
-Run the stack:
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/your-org/research-intelligence-system.git
+cd research-intelligence-system
+cp .env.example .env
+```
+
+Edit `.env` and fill in your keys:
+
+```bash
+OPENAI_API_KEY=sk-...
+TAVILY_API_KEY=tvly-...
+```
+
+### 2. Start the stack
+
 ```bash
 make up
 ```
 
-Stop the stack:
+First run pulls images and installs dependencies — takes a couple of minutes. Subsequent starts are fast.
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
+| ChromaDB | http://localhost:8001 |
+| Redis | localhost:6379 |
+
+### 3. Ingest some documents (optional)
+
 ```bash
-make down
+# From a local PDF
+make ingest file=path/to/paper.pdf
+
+# From a URL
+make ingest-url url=https://example.com/article
 ```
 
-Rebuild:
-```bash
-make rebuild
+Documents are session-scoped at ingest time. See [Session-scoped RAG](#session-scoped-rag) below.
+
+### 4. Run a research session
+
+Open http://localhost:3000, enter a research question, and watch the agent pipeline run live.
+
+---
+
+## Session-scoped RAG
+
+Documents ingested for a session are only visible to that session. This is enforced at the database level via a `session_id` metadata filter on every ChromaDB query — not a soft convention.
+
+When you ingest a document, you provide the `session_id` it belongs to. The Retrieval Agent always queries with `where: { session_id: { $eq: current_session_id } }`. It is structurally impossible for one session's retrieval to read another session's documents.
+
+Documents are deleted from ChromaDB when the session completes.
+
+---
+
+## API Reference
+
+### `POST /api/research`
+
+Start a new research session.
+
+```jsonc
+// Request
+{ "query": "What are the latest advances in mechanistic interpretability?" }
+
+// Response
+{ "session_id": "3f2a1b..." }
 ```
 
-Ingestion CLI:
+### `GET /api/session/{id}/stream`
+
+Server-sent event stream. Connect immediately after creating a session. Events:
+
+```typescript
+type SessionEvent =
+  | { type: "agent_start";      agent: string; node: string; timestamp: string }
+  | { type: "agent_end";        agent: string; node: string; output: object; timestamp: string }
+  | { type: "tool_call";        agent: string; tool: string; input: object; timestamp: string }
+  | { type: "tool_result";      agent: string; tool: string; result: object; timestamp: string }
+  | { type: "state_snapshot";   state: AgentState; timestamp: string }
+  | { type: "hitl_interrupt";   gate: "plan" | "sources"; payload: object; timestamp: string }
+  | { type: "session_complete"; report_id: string; timestamp: string }
+  | { type: "error";            message: string; recoverable: boolean; timestamp: string }
+```
+
+### `POST /api/session/{id}/resume`
+
+Resume a session paused at a HITL gate.
+
+```jsonc
+// Gate 1 — plan approval
+{ "gate": "plan", "decision": { "action": "approve" } }
+{ "gate": "plan", "decision": { "action": "edit", "plan": { "sub_questions": ["..."] } } }
+{ "gate": "plan", "decision": { "action": "reject" } }
+
+// Gate 2 — source approval
+{ "gate": "sources", "decision": { "approved_chunk_ids": ["chunk_abc", "chunk_def"] } }
+```
+
+### `POST /api/ingest`
+
+Ingest a document into a session's knowledge base. Multipart form.
+
 ```bash
+# PDF
+curl -X POST http://localhost:8000/api/ingest \
+  -F "session_id=3f2a1b..." \
+  -F "file=@paper.pdf"
+
+# URL
+curl -X POST http://localhost:8000/api/ingest \
+  -F "session_id=3f2a1b..." \
+  -F "url=https://example.com/article"
+```
+
+Response: `{ "doc_id": "...", "chunk_count": 42 }`
+
+### `GET /api/report/{id}`
+
+Returns the completed report with resolved citation metadata (source title, URL, page number, chunk text).
+
+---
+
+## Configuration
+
+All configuration lives in `.env`. See `.env.example` for the full list.
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | — | Required |
+| `TAVILY_API_KEY` | — | Required |
+| `DEFAULT_MODEL` | `gpt-4o` | Model for all agents (override per-agent in `config.py`) |
+| `LLM_CACHE_ENABLED` | `true` | Redis LLM response cache |
+| `LLM_CACHE_TTL_SECONDS` | `3600` | Cache TTL |
+| `MAX_RETRIEVAL_STEPS` | `8` | Max ReAct iterations in Retrieval Agent |
+| `MAX_TOOL_RETRIES` | `3` | Consecutive tool failures before skipping a sub-question |
+| `RETRIEVAL_TOP_K` | `10` | Chunks returned per vector store query |
+| `CRITIC_PASS_THRESHOLD` | `0.75` | Score above which Critic approves the report |
+| `MAX_REVISIONS` | `2` | Max Synthesis revisions before Critic accepts best draft |
+| `DEBUG_MODE` | `true` | Surface agent scratchpads in SSE events |
+
+---
+
+## Developer Commands
+
+```bash
+make up             # Start all services
+make down           # Stop all services
+make rebuild        # Rebuild images and restart
+make logs           # Follow logs from all services
+make flush-cache    # Clear Redis LLM cache (force fresh LLM calls)
+make reset-db       # Wipe all volumes and restart fresh
+make shell-backend  # Shell into the backend container
+make shell-frontend # Shell into the frontend container
 make ingest file=path/to/doc.pdf
 make ingest-url url=https://example.com
 ```
 
-Notes
------
+---
 
-- The SSE stream is the source of truth for UI state.
-- Tools never raise exceptions; they return structured observations.
-- Analysis and synthesis only operate on approved sources.
+## Project Structure
 
-License
--------
+```
+research-agent/
+├── backend/
+│   └── app/
+│       ├── agents/         # supervisor, retrieval, analysis, synthesis, critic
+│       ├── tools/          # search, retrieval, document, analysis + ToolResult base
+│       ├── graph/          # AgentState, graph assembly, HITL interrupt nodes
+│       ├── memory/         # ChromaDB (long-term) + SQLite (episodic) clients
+│       ├── ingestion/      # PDF/URL → chunk → embed → ChromaDB pipeline
+│       ├── cache/          # Redis-backed LLM response cache
+│       ├── api/            # FastAPI routes + SSE streaming
+│       └── config.py       # get_llm() factory, env vars, constants
+├── frontend/
+│   └── src/
+│       ├── app/            # Next.js pages: /, /session/[id], /report/[id]
+│       ├── components/     # upload, session panels, HITL, report viewer
+│       ├── hooks/          # useSessionStream — SSE EventSource hook
+│       └── types/          # SessionEvent union type, AgentState shape
+├── docker-compose.yml
+├── Makefile
+├── .env.example
+└── CLAUDE.md               # full design spec — read this first
+```
 
-MIT. See LICENSE.
+---
+
+## Contributing
+
+Contributions are welcome. This project is explicitly designed to be extended — every agent, tool, and memory backend is a self-contained module.
+
+### Good first issues
+
+- **Add a new tool** — implement `app/tools/base.py`'s `ToolResult` contract and register it on an agent.
+- **Improve hybrid retrieval** — the BM25 + dense fusion in `app/tools/retrieval.py` has room for a better reranker.
+- **Add per-agent model routing** — `config.py` has the `AGENT_MODEL_MAP` ready; wire it to a UI control.
+- **Episodic memory queries** — the SQLite schema is in place; build a `GET /api/sessions` endpoint and a session history panel in the frontend.
+- **Export report as PDF** — the report viewer has a markdown download; a PDF export via `weasyprint` or similar would be a clean addition.
+
+### Before you open a PR
+
+1. Read `CLAUDE.md` — it documents all non-negotiable design decisions.
+2. Tools must return `ToolResult` — never raise exceptions from a tool function.
+3. New graph nodes must be `async def` and must emit appropriate SSE events.
+4. Agent scratchpads must be stored in `AgentState` — never discarded.
+5. Any new retrieval must use the `session_id` metadata filter — no global queries.
+
+### Setup for development
+
+```bash
+git clone https://github.com/your-org/research-intelligence-system.git
+cd research-intelligence-system
+cp .env.example .env   # fill in your keys
+make up
+```
+
+Backend has hot reload (`--reload` on uvicorn). Frontend has Next.js fast refresh. No rebuilds needed for code changes.
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
