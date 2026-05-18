@@ -35,7 +35,7 @@ jobs:
         id: meta-backend
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/research-agent-backend
+          images: ghcr.io/${{ github.repository_owner }}/deep-walkthrough-backend
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -58,7 +58,7 @@ jobs:
         id: meta-frontend
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/research-agent-frontend
+          images: ghcr.io/${{ github.repository_owner }}/deep-walkthrough-frontend
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -84,14 +84,14 @@ jobs:
           body: |
             ## Docker Images
 
-            Images for this release are published to [GitHub Container Registry](https://github.com/${{ github.repository }}/pkgs/container/research-agent-backend).
+            Images for this release are published to [GitHub Container Registry](https://github.com/${{ github.repository }}/pkgs/container/deep-walkthrough-backend).
 
             ```bash
             # Backend
-            docker pull ghcr.io/${{ github.repository_owner }}/research-agent-backend:${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository_owner }}/deep-walkthrough-backend:${{ github.ref_name }}
 
             # Frontend
-            docker pull ghcr.io/${{ github.repository_owner }}/research-agent-frontend:${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository_owner }}/deep-walkthrough-frontend:${{ github.ref_name }}
             ```
 
             ## Quick Start
