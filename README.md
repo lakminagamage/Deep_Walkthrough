@@ -20,33 +20,6 @@ Built to teach AI agent patterns correctly — by building one that actually wor
 
 </div>
 
----
-
-## What This Is
-
-Most agent tutorials show you a chatbot that calls a tool. This is not that.
-
-This repository is a **complete, working reference implementation** of a multi-agent research system designed so every architectural decision is visible, inspectable, and learnable. You give it a research question; it plans, retrieves, analyses, synthesises, and critiques its way to a cited report, pausing twice for your approval before proceeding.
-
-Every agent exposes its full reasoning. Every graph state transition is streamed live to a developer debug UI. Every tool failure is handled as structured data, not a crash.
-
----
-
-## What You'll Learn
-
-This codebase demonstrates six agent patterns, wired together in one coherent application:
-
-| Pattern | Where to look |
-|---|---|
-| **Tool use / function calling** | `app/tools/` — every tool follows the `ToolResult` contract |
-| **Memory (short-term, long-term, episodic)** | `app/graph/state.py`, `app/memory/long_term.py`, `app/memory/episodic.py` |
-| **Multi-agent orchestration (true supervisor)** | `app/agents/supervisor.py` — re-entrant router making decisions at three checkpoints, plus four specialised workers |
-| **Planning & reasoning loops (ReAct, CoT)** | `app/agents/retrieval.py` (ReAct), `app/agents/supervisor.py` (CoT) |
-| **RAG & hybrid retrieval** | `app/tools/retrieval.py` — dense + BM25 fusion + reranking |
-| **Human-in-the-loop approval flows** | `app/graph/hitl.py` — two interrupt gates via LangGraph |
-
----
-
 ## Architecture
 
 ### Agent Pipeline
