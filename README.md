@@ -57,7 +57,6 @@ Built to teach AI agent patterns correctly — by building one that actually wor
 
 **Gate 2 — Source Approval:** The Retrieval Agent surfaces its candidates with credibility scores. You deselect untrusted sources. Analysis and Synthesis only ever see what you approved.
 
-**True Supervisor pattern:** The Supervisor is a real orchestrator, not a one-shot planner. After Gate 1 it re-enters the graph at three checkpoints — `post_sources`, `post_analysis`, and `post_critic` — reads the accumulated `AgentState`, and emits a structured `SupervisorDecision` that drives the conditional edges. There are no hardcoded threshold checks in the graph; every loop-back, advance, and termination is a reasoned LLM decision.
 
 | Checkpoint | Reads | Routes to |
 |---|---|---|
