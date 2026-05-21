@@ -40,7 +40,7 @@ This codebase demonstrates six agent patterns, wired together in one coherent ap
 |---|---|
 | **Tool use / function calling** | `app/tools/` — every tool follows the `ToolResult` contract |
 | **Memory (short-term, long-term, episodic)** | `app/graph/state.py`, `app/memory/long_term.py`, `app/memory/episodic.py` |
-| **Multi-agent orchestration** | `app/agents/` — supervisor + four specialised workers |
+| **Multi-agent orchestration (true supervisor)** | `app/agents/supervisor.py` — re-entrant router making decisions at three checkpoints, plus four specialised workers |
 | **Planning & reasoning loops (ReAct, CoT)** | `app/agents/retrieval.py` (ReAct), `app/agents/supervisor.py` (CoT) |
 | **RAG & hybrid retrieval** | `app/tools/retrieval.py` — dense + BM25 fusion + reranking |
 | **Human-in-the-loop approval flows** | `app/graph/hitl.py` — two interrupt gates via LangGraph |
@@ -52,28 +52,47 @@ This codebase demonstrates six agent patterns, wired together in one coherent ap
 ### Agent Pipeline
 
 ```
-┌───────────┐    Gate 1     ┌───────────┐    Gate 2     ┌───────────┐
-│ Supervisor│──────────────▶│ Retrieval │──────────────▶│ Analysis  │
-│  (CoT)    │  Plan review  │  (ReAct)  │ Source review │           │
-└───────────┘               └───────────┘               └─────┬─────┘
-                                                               │
-                                                        ┌──────▼──────┐
-                                              ┌─────────│  Synthesis  │◀──────────┐
-                                              │         └─────────────┘           │
-                                              │                                   │ score < threshold
-                                              │         ┌─────────────┐           │ AND revisions left
-                                              └────────▶│   Critic    │───────────┘
-                                                        └──────┬──────┘
-                                                               │ score ≥ threshold
-                                                               ▼
-                                                          Final Report
+┌───────────┐  Gate 1   ┌───────────┐  Gate 2   ┌──────────────┐
+│ Supervisor│──────────▶│ Retrieval │──────────▶│  Supervisor  │
+│  (plan)   │ Plan rev. │  (ReAct)  │ Src. rev. │ (post_sources)│
+└───────────┘           └─────▲─────┘           └──────┬───────┘
+                              │                        │
+                  loop back ──┘            ┌───────────▼───────────┐
+                  (more sources needed)    │       Analysis        │
+                                           └───────────┬───────────┘
+                                                       │
+                                           ┌───────────▼───────────┐
+                                           │      Supervisor       │
+                                           │    (post_analysis)    │
+                                           └───────────┬───────────┘
+                                                       │
+                                           ┌───────────▼───────────┐
+                                ┌─────────▶│       Synthesis       │
+                                │          └───────────┬───────────┘
+                                │                      │
+                                │          ┌───────────▼───────────┐
+                                │          │        Critic         │
+                                │          └───────────┬───────────┘
+                                │                      │
+                                │          ┌───────────▼───────────┐
+                                └──────────│      Supervisor       │──▶ Final Report
+                                  revise   │    (post_critic)      │   (end)
+                                           └───────────────────────┘
 ```
 
 **Gate 1 — Plan Approval:** The Supervisor decomposes the query into sub-questions and presents the plan. You approve, edit, or reject before any retrieval begins.
 
 **Gate 2 — Source Approval:** The Retrieval Agent surfaces its candidates with credibility scores. You deselect untrusted sources. Analysis and Synthesis only ever see what you approved.
 
-**Critic loop:** The Critic scores the draft report (0–1). If the score is below `CRITIC_PASS_THRESHOLD` and `MAX_REVISIONS` has not been reached, the graph routes back to Synthesis with structured feedback. This is a goal-conditioned loop, not a one-shot pipeline.
+**True Supervisor pattern:** The Supervisor is a real orchestrator, not a one-shot planner. After Gate 1 it re-enters the graph at three checkpoints — `post_sources`, `post_analysis`, and `post_critic` — reads the accumulated `AgentState`, and emits a structured `SupervisorDecision` that drives the conditional edges. There are no hardcoded threshold checks in the graph; every loop-back, advance, and termination is a reasoned LLM decision.
+
+| Checkpoint | Reads | Routes to |
+|---|---|---|
+| `post_sources` | `approved_sources`, credibility, sub-question coverage | `analysis` or `retrieval` (loop back with a directive) |
+| `post_analysis` | `claims`, `analysis_gaps`, `revision_count` | `synthesis` or `retrieval` (only when gaps are critical) |
+| `post_critic` | `critic_score`, `critic_feedback`, `revision_count` | `synthesis` (revise) or `end` |
+
+Each decision carries an `instruction` field — a directive the next worker agent reads from `current_supervisor_instruction` and injects into its prompt. Every decision is appended to `supervisor_decisions` and surfaced as a `supervisor_decision` SSE event, rendered as a stage-divider card in the agent timeline.
 
 ---
 
@@ -82,14 +101,19 @@ This codebase demonstrates six agent patterns, wired together in one coherent ap
 ```
 FastAPI (async)
 └── LangGraph stateful graph
-    ├── Supervisor          — CoT planner, decomposes query into sub-questions
-    ├── [HITL Gate 1]       — plan approval interrupt
-    ├── Retrieval Agent     — ReAct loop: web search + session-scoped vector store
-    ├── [HITL Gate 2]       — source approval interrupt
-    ├── Analysis Agent      — claim extraction + gap identification
-    ├── Synthesis Agent     — markdown report with chunk-level citations
-    └── Critic Agent        — scores draft, triggers revision loop if needed
+    ├── Supervisor (plan)         — CoT planner, decomposes query into sub-questions
+    ├── [HITL Gate 1]              — plan approval interrupt
+    ├── Retrieval Agent            — ReAct loop: web search + session-scoped vector store
+    ├── [HITL Gate 2]              — source approval interrupt
+    ├── Supervisor (post_sources)  — routes to analysis or back to retrieval
+    ├── Analysis Agent             — claim extraction + gap identification
+    ├── Supervisor (post_analysis) — routes to synthesis or back to retrieval
+    ├── Synthesis Agent            — markdown report with chunk-level citations
+    ├── Critic Agent               — scores draft + structured feedback
+    └── Supervisor (post_critic)   — routes to synthesis (revise) or end
 ```
+
+The three `Supervisor (post_*)` rows are all the same `supervisor_route_node` — one LangGraph node re-entered at three pipeline stages. It detects its own context by inspecting the state (presence of `claims`, `critic_score`, etc.) and selects the appropriate routing prompt.
 
 **Memory layers:**
 
@@ -229,15 +253,23 @@ Server-sent event stream. Connect immediately after creating a session. Events:
 
 ```typescript
 type SessionEvent =
-  | { type: "agent_start";      agent: string; node: string; timestamp: string }
-  | { type: "agent_end";        agent: string; node: string; output: object; timestamp: string }
-  | { type: "tool_call";        agent: string; tool: string; input: object; timestamp: string }
-  | { type: "tool_result";      agent: string; tool: string; result: object; timestamp: string }
-  | { type: "state_snapshot";   state: AgentState; timestamp: string }
-  | { type: "hitl_interrupt";   gate: "plan" | "sources"; payload: object; timestamp: string }
-  | { type: "session_complete"; report_id: string; timestamp: string }
-  | { type: "error";            message: string; recoverable: boolean; timestamp: string }
+  | { type: "agent_start";         agent: string; node: string; timestamp: string }
+  | { type: "agent_end";           agent: string; node: string; output: object; timestamp: string }
+  | { type: "tool_call";           agent: string; tool: string; input: object; timestamp: string }
+  | { type: "tool_result";         agent: string; tool: string; result: object; timestamp: string }
+  | { type: "state_snapshot";      state: AgentState; timestamp: string }
+  | { type: "hitl_interrupt";      gate: "plan" | "sources"; payload: object; timestamp: string }
+  | { type: "supervisor_decision";
+      stage: "post_sources" | "post_analysis" | "post_critic";
+      next: "analysis" | "retrieval" | "synthesis" | "end";
+      reasoning: string;
+      instruction: string | null;
+      timestamp: string }
+  | { type: "session_complete";    report_id: string; timestamp: string }
+  | { type: "error";               message: string; recoverable: boolean; timestamp: string }
 ```
+
+`supervisor_decision` events are rendered as full-width stage-divider cards in the agent timeline (`SupervisorDecisionCard`), showing the routing arrow, the Supervisor's full reasoning, and the directive passed to the next agent.
 
 ### `POST /api/session/{id}/resume`
 
@@ -291,8 +323,10 @@ All configuration lives in `.env`. See `.env.example` for the full list.
 | `MAX_RETRIEVAL_STEPS` | `8` | Max ReAct iterations in Retrieval Agent |
 | `MAX_TOOL_RETRIES` | `3` | Consecutive tool failures before skipping a sub-question |
 | `RETRIEVAL_TOP_K` | `10` | Chunks returned per vector store query |
-| `CRITIC_PASS_THRESHOLD` | `0.75` | Score above which Critic approves the report |
-| `MAX_REVISIONS` | `2` | Max Synthesis revisions before Critic accepts best draft |
+| `CRITIC_PASS_THRESHOLD` | `0.75` | Score the Supervisor uses to decide whether to end or send the draft back for another revision |
+| `MAX_REVISIONS` | `2` | Hard ceiling on Supervisor-initiated revision loops |
+| `MIN_SOURCES_PER_SUBQUESTION` | `2.0` | Supervisor `post_sources` heuristic: loop back to retrieval if average coverage falls below this |
+| `MIN_SOURCE_CREDIBILITY` | `0.6` | Supervisor `post_sources` heuristic: loop back if all approved sources score below this |
 | `DEBUG_MODE` | `true` | Surface agent scratchpads in SSE events |
 
 ---
