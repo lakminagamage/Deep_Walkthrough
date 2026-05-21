@@ -50,7 +50,7 @@ async def stream_session(session_id: str, request: Request) -> StreamingResponse
 
     async def generate():
         try:
-            # ── Replay current graph state on every (re)connect ───────────
+            # ── Replay current graph state on every (re)connect 
             graph_state = await graph.aget_state(config)
             vals = graph_state.values if graph_state else {}
 
@@ -98,7 +98,7 @@ async def stream_session(session_id: str, request: Request) -> StreamingResponse
                                 "timestamp": _now(),
                             })
 
-            # ── Stream live events from the queue ─────────────────────────
+            # ── Stream live events from the queue 
             while True:
                 if await request.is_disconnected():
                     break

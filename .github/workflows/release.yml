@@ -29,7 +29,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Backend ──────────────────────────────────────────────────────────
+      # ── Backend ──
 
       - name: Extract backend metadata
         id: meta-backend
@@ -52,7 +52,7 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-      # ── Frontend ─────────────────────────────────────────────────────────
+      # ── Frontend ─
 
       - name: Extract frontend metadata
         id: meta-frontend
@@ -75,7 +75,7 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      # ── GitHub Release ────────────────────────────────────────────────────
+      # ── GitHub Release ──
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

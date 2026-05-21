@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import get_llm
 from app.graph.state import AgentState, Claim
-from app.tools.analysis import extract_claims, score_credibility
+from app.tools.analysis import extract_claims
 
 _GAPS_SYSTEM = """\
 You are a research analyst. Given a list of factual claims and the original sub-questions,
@@ -19,28 +19,20 @@ Return an empty list if coverage is sufficient."""
 
 
 async def analysis_node(state: AgentState) -> dict:
+    instruction = state.get("current_supervisor_instruction")
+    state_update: dict = {"current_supervisor_instruction": None}
+
     approved_sources = state.get("approved_sources", [])
     errors_in_state: list[dict] = list(state.get("errors", []))
     scratchpad: list[str] = []
+    if instruction:
+        scratchpad.append(f"[supervisor directive] {instruction}")
     all_claims: list[Claim] = []
 
-    # ── Per-source: score credibility + extract claims ────────────────────────
+    # ── Per-source: score credibility + extract claims ──
 
     for source in approved_sources:
         chunk_id = source["chunk_id"]
-        url = source["source_url"]
-
-        # Score credibility.
-        cred_obs = await score_credibility.ainvoke({"url": url})
-        if cred_obs.startswith("SUCCESS: "):
-            try:
-                cred_data = json.loads(cred_obs[len("SUCCESS: "):])
-                source["credibility_score"] = cred_data["score"]
-                scratchpad.append(
-                    f"[credibility] {url} → {cred_data['score']} ({cred_data['reason']})"
-                )
-            except (json.JSONDecodeError, KeyError):
-                pass
 
         # Extract claims.
         claims_obs = await extract_claims.ainvoke({
@@ -75,12 +67,13 @@ async def analysis_node(state: AgentState) -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
-    # ── Gap analysis via LLM ──────────────────────────────────────────────────
+    # ── Gap analysis via LLM 
 
     plan = state.get("research_plan")
     sub_questions = plan["sub_questions"] if plan else [state["query"]]
     claims_summary = "\n".join(f"- {c['text']}" for c in all_claims[:60])
 
+    instruction_suffix = f"\n\nDirective from Supervisor: {instruction}" if instruction else ""
     llm = get_llm("analysis")
     gap_response = await llm.ainvoke([
         SystemMessage(content=_GAPS_SYSTEM),
@@ -88,6 +81,7 @@ async def analysis_node(state: AgentState) -> dict:
             content=(
                 f"Sub-questions:\n{chr(10).join(sub_questions)}\n\n"
                 f"Extracted claims (up to 60):\n{claims_summary or '(none)'}"
+                + instruction_suffix
             )
         ),
     ])
@@ -104,6 +98,7 @@ async def analysis_node(state: AgentState) -> dict:
     scratchpad.append(f"[gaps] identified {len(gaps)} coverage gap(s)")
 
     return {
+        **state_update,
         "claims": all_claims,
         "analysis_gaps": gaps,
         "approved_sources": approved_sources,  # credibility scores updated in-place

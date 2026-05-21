@@ -1,4 +1,4 @@
-from typing import Annotated, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 from langgraph.graph.message import add_messages
 
@@ -6,6 +6,14 @@ from langgraph.graph.message import add_messages
 class ResearchPlan(TypedDict):
     sub_questions: list[str]
     approved: bool
+
+
+class SupervisorDecision(TypedDict):
+    stage: Literal["post_sources", "post_analysis", "post_critic"]
+    next: Literal["analysis", "retrieval", "synthesis", "end"]
+    reasoning: str          # full CoT reasoning — stored in state, never discarded
+    instruction: str | None # directive passed to the next agent; None if routing to end
+    timestamp: str          # ISO format
 
 
 class SourceCandidate(TypedDict):
@@ -45,11 +53,13 @@ class AgentState(TypedDict):
 
     # Synthesis
     report_draft: str | None
+    best_report_draft: str | None   # highest-scoring draft seen so far
     report_final: str | None
     report_id: str | None
 
     # Critic
     critic_score: float | None
+    best_critic_score: float | None  # score of best_report_draft
     critic_feedback: str | None
     revision_count: int
 
@@ -65,3 +75,15 @@ class AgentState(TypedDict):
 
     # Errors encountered during the run
     errors: list[dict]             # [{agent, tool, error_message, timestamp}]
+
+    # Supervisor routing history — append-only, never overwrite
+    supervisor_decisions: list[SupervisorDecision]
+
+    # The most recent instruction from the Supervisor for the next agent to read.
+    # Each agent reads this at the start of its node and incorporates it into its prompt.
+    # Reset to None after each agent reads it.
+    current_supervisor_instruction: str | None
+
+    # Loop-break signals for the Supervisor
+    retrieval_attempts: dict[str, int]  # sub_question → cumulative attempt count
+    last_retrieval_new_chunk_count: int # chunks not seen in any prior pass; -1 = not yet run

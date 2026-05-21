@@ -38,6 +38,9 @@ def _format_claims(claims: list[dict]) -> str:
 
 
 async def synthesis_node(state: AgentState) -> dict:
+    instruction = state.get("current_supervisor_instruction")
+    state_update: dict = {"current_supervisor_instruction": None}
+
     llm = get_llm("synthesis")
     claims = state.get("claims", [])
     query = state["query"]
@@ -47,11 +50,12 @@ async def synthesis_node(state: AgentState) -> dict:
     if feedback:
         critic_section = f"Critic feedback to address in this revision:\n{feedback}\n\n"
 
+    prompt_suffix = f"\n\nDirective from Supervisor: {instruction}" if instruction else ""
     prompt = _CLAIMS_TEMPLATE.format(
         query=query,
         claims_block=_format_claims(claims) or "(no claims available)",
         critic_section=critic_section,
-    )
+    ) + prompt_suffix
 
     response = await llm.ainvoke([
         SystemMessage(content=_SYSTEM),
@@ -62,8 +66,12 @@ async def synthesis_node(state: AgentState) -> dict:
     report_id = str(uuid.uuid4())
 
     return {
+        **state_update,
         "report_draft": report_draft,
         "report_id": report_id,
-        "synthesis_scratchpad": f"Generated report ({len(report_draft)} chars, "
-                                f"revision={state.get('revision_count', 0)})",
+        "synthesis_scratchpad": (
+            (f"[supervisor directive] {instruction}\n" if instruction else "")
+            + f"Generated report ({len(report_draft)} chars, "
+            f"revision={state.get('revision_count', 0)})"
+        ),
     }

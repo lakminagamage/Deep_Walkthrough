@@ -40,7 +40,7 @@ export default function HomePage() {
       </header>
 
       <div className="flex-1 flex gap-0 divide-x divide-border">
-        {/* ── Left: Query form ───────────────────────────────────────────── */}
+        {/* ── Left: Query form ─── */}
         <section className="flex-1 flex flex-col gap-7 p-10">
           <div>
             <h2 className="font-mono text-xs text-muted uppercase tracking-wider mb-2">
@@ -82,7 +82,7 @@ export default function HomePage() {
           </form>
         </section>
 
-        {/* ── Right: Ingestion ───────────────────────────────────────────── */}
+        {/* ── Right: Ingestion ─── */}
         <section className="w-[420px] flex flex-col gap-7 p-10">
           <div>
             <h2 className="font-mono text-xs text-muted uppercase tracking-wider mb-2">

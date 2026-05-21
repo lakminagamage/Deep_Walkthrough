@@ -3,6 +3,14 @@ export interface ResearchPlan {
   approved: boolean
 }
 
+export interface SupervisorDecision {
+  stage: "post_sources" | "post_analysis" | "post_critic"
+  next: "analysis" | "retrieval" | "synthesis" | "end"
+  reasoning: string
+  instruction: string | null
+  timestamp: string
+}
+
 export interface SourceCandidate {
   chunk_id: string
   content: string
@@ -38,9 +46,11 @@ export interface AgentState {
   claims: Claim[]
   analysis_gaps: string[]
   report_draft: string | null
+  best_report_draft: string | null
   report_final: string | null
   report_id: string | null
   critic_score: number | null
+  best_critic_score: number | null
   critic_feedback: string | null
   revision_count: number
   supervisor_scratchpad: string
@@ -50,6 +60,8 @@ export interface AgentState {
   critic_scratchpad: string
   messages: unknown[]
   errors: ErrorEntry[]
+  supervisor_decisions: SupervisorDecision[]
+  current_supervisor_instruction: string | null
 }
 
 export type SessionEvent =
@@ -63,6 +75,14 @@ export type SessionEvent =
   | { type: 'error';            message: string; recoverable: boolean; timestamp: string }
   | { type: 'heartbeat' }
   | { type: 'done' }
+  | {
+      type: "supervisor_decision"
+      stage: "post_sources" | "post_analysis" | "post_critic"
+      next: "analysis" | "retrieval" | "synthesis" | "end"
+      reasoning: string
+      instruction: string | null
+      timestamp: string
+    }
 
 export interface StreamState {
   events: SessionEvent[]

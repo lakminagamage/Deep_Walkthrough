@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { SessionEvent } from '@/types/session'
 import GraphStepCard from './GraphStepCard'
+import SupervisorDecisionCard from './SupervisorDecisionCard'
 
 interface Props { events: SessionEvent[] }
 
@@ -28,9 +29,17 @@ export default function AgentProgressFeed({ events }: Props) {
         {visible.length === 0 ? (
           <p className="font-mono text-sm text-muted mt-6 px-2">Waiting for pipeline to start…</p>
         ) : (
-          visible.map((event, i) => (
-            <GraphStepCard key={i} event={event} index={i} />
-          ))
+          visible.map((event, i) => {
+            if (event.type === 'supervisor_decision') {
+              return (
+                <SupervisorDecisionCard
+                  key={event.timestamp}
+                  event={event}
+                />
+              )
+            }
+            return <GraphStepCard key={i} event={event} index={i} />
+          })
         )}
         <div ref={bottomRef} />
       </div>

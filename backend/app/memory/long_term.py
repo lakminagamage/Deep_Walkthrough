@@ -31,7 +31,7 @@ class LongTermMemory:
         client = await self._get_client()
         return await client.get_or_create_collection(name=name)
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # ── Public API 
 
     async def query(
         self,
