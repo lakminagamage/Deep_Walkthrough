@@ -4,19 +4,23 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 
+if TYPE_CHECKING:
+    from app.graph.state import SupervisorDecision
+
 AGENT_NODES = {
-    "supervisor",
+    "supervisor_plan",
     "hitl_plan_approval",
     "retrieval_agent",
     "hitl_source_approval",
     "analysis_agent",
     "synthesis_agent",
     "critic_agent",
+    "finalize_report",
 }
 
 
@@ -39,7 +43,35 @@ def format_sse(data: dict) -> str:
     return f"data: {json.dumps(_safe(data))}\n\n"
 
 
-# ── LangChain callback for tool + agent events ────────────────────────────────
+# SSE-safe cap on the supervisor's reasoning text. The full reasoning stays in
+# state (supervisor_scratchpad + supervisor_decisions) and is visible in the
+# State Inspector; only a truncated rationale is streamed to the client.
+_REASONING_SSE_MAX_CHARS = 600
+
+
+def _truncate_reasoning(text: str, limit: int = _REASONING_SSE_MAX_CHARS) -> str:
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "… [truncated — full reasoning in state]"
+
+
+async def emit_supervisor_decision(
+    queue: asyncio.Queue,
+    decision: "SupervisorDecision",
+) -> None:
+    await queue.put({
+        "type": "supervisor_decision",
+        "stage": decision["stage"],
+        "next": decision["next"],
+        "reasoning": _truncate_reasoning(decision["reasoning"]),
+        "instruction": decision["instruction"],
+        "timestamp": decision["timestamp"],
+    })
+
+
+# ── LangChain callback for tool + agent events ─
 
 class StreamEventCallback(AsyncCallbackHandler):
     """Intercepts tool calls and agent-chain starts; pushes SSE events to queue."""
@@ -92,7 +124,7 @@ class StreamEventCallback(AsyncCallbackHandler):
         })
 
 
-# ── Background graph runner ───────────────────────────────────────────────────
+# ── Background graph runner ─
 
 async def _generate_summary(query: str) -> str:
     """Return a ≤10-word summary of the query using the LLM."""
@@ -166,7 +198,12 @@ async def run_graph_background(
                     _hitl_pause = True
                     return  # finally checks _hitl_pause and skips the None sentinel
 
-                if node_name in AGENT_NODES:
+                if node_name == "supervisor_route":
+                    decisions = node_output.get("supervisor_decisions", [])
+                    if decisions:
+                        await emit_supervisor_decision(queue, decisions[-1])
+
+                elif node_name in AGENT_NODES:
                     await queue.put({
                         "type": "agent_end",
                         "agent": node_name,
@@ -183,7 +220,7 @@ async def run_graph_background(
                     "timestamp": _now(),
                 })
 
-        # ── Normal completion ──────────────────────────────────────────────
+        # ── Normal completion ────
         final_state = await graph.aget_state(config)
         report_id = (final_state.values or {}).get("report_id")
         if (final_state.values or {}).get("report_final"):

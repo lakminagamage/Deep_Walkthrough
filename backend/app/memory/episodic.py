@@ -56,7 +56,7 @@ class EpisodicMemory:
                 pass  # Column already exists
             await db.commit()
 
-    # ── Sessions ──────────────────────────────────────────────────────────────
+    # ── Sessions ─
 
     async def create_session(self, session_id: str, query: str) -> None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -87,7 +87,7 @@ class EpisodicMemory:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
-    # ── Events ────────────────────────────────────────────────────────────────
+    # ── Events ───
 
     async def log_event(
         self,
@@ -137,7 +137,7 @@ class EpisodicMemory:
                 rows = await cur.fetchall()
                 return [dict(r) for r in rows]
 
-    # ── HITL decisions ────────────────────────────────────────────────────────
+    # ── HITL decisions 
 
     async def log_hitl_decision(
         self,

@@ -66,16 +66,20 @@ async def critic_node(state: AgentState) -> dict:
         score = 0.5
         feedback = raw
 
-    passes = score >= CRITIC_PASS_THRESHOLD or revision_count >= MAX_REVISIONS
-
-    return {
+    update: dict = {
         "critic_score": score,
-        "critic_feedback": feedback if not passes else None,
+        "critic_feedback": feedback,
         "revision_count": revision_count + 1,
-        # Promote draft to final when the critic passes it.
-        "report_final": report_draft if passes else None,
         "critic_scratchpad": (
             f"score={score:.2f} threshold={CRITIC_PASS_THRESHOLD} "
-            f"revision={revision_count} passes={passes}"
+            f"revision={revision_count}"
         ),
     }
+
+    # Track the highest-scoring draft so finalize_report can use it.
+    best_so_far = state.get("best_critic_score") or 0.0
+    if score >= best_so_far:
+        update["best_report_draft"] = report_draft
+        update["best_critic_score"] = score
+
+    return update

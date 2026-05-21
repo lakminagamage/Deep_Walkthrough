@@ -4,7 +4,7 @@ import { useEffect, useReducer } from 'react'
 import { API_BASE } from '@/lib/utils'
 import type { AgentState, SessionEvent, StreamState } from '@/types/session'
 
-// ── Reducer ───────────────────────────────────────────────────────────────────
+// ── Reducer ──
 
 type Action =
   | { type: 'ADD_EVENT';   event: SessionEvent }
@@ -36,7 +36,7 @@ function reducer(s: StreamState, a: Action): StreamState {
   }
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
+// ── Hook ──
 
 export function useSessionStream(sessionId: string) {
   const [state, dispatch] = useReducer(reducer, initial)

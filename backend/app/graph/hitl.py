@@ -3,11 +3,10 @@ from __future__ import annotations
 from langgraph.graph import END
 from langgraph.types import Command, interrupt
 
-from app.config import CRITIC_PASS_THRESHOLD, MAX_REVISIONS
 from app.graph.state import AgentState, ResearchPlan, SourceCandidate
 
 
-# ── Gate 1 — Plan Approval ────────────────────────────────────────────────────
+# ── Gate 1 — Plan Approval ──
 
 async def hitl_plan_approval_node(state: AgentState) -> Command:
     """Pause graph and surface the research plan for human review.
@@ -42,7 +41,7 @@ async def hitl_plan_approval_node(state: AgentState) -> Command:
     )
 
 
-# ── Gate 2 — Source Approval ──────────────────────────────────────────────────
+# ── Gate 2 — Source Approval 
 
 async def hitl_source_approval_node(state: AgentState) -> Command:
     """Pause graph and surface retrieved source candidates for human review.
@@ -59,32 +58,23 @@ async def hitl_source_approval_node(state: AgentState) -> Command:
     })
 
     approved_ids: set[str] = set(decision.get("approved_chunk_ids", []))
-    approved: list[SourceCandidate] = [
+    newly_approved: list[SourceCandidate] = [
         {**s, "approved": True}
         for s in candidates
         if s["chunk_id"] in approved_ids
     ]
 
+    # Merge with previously approved sources so Analysis always sees the full set.
+    existing: list[SourceCandidate] = state.get("approved_sources", [])
+    existing_ids: set[str] = {s["chunk_id"] for s in existing}
+    merged: list[SourceCandidate] = existing + [
+        s for s in newly_approved if s["chunk_id"] not in existing_ids
+    ]
+
     return Command(
-        goto="analysis_agent",
+        goto="supervisor_route",
         update={
-            "approved_sources": approved,
+            "approved_sources": merged,
             "hitl_sources_approved": True,
         },
     )
-
-
-# ── Routing helper for Critic ─────────────────────────────────────────────────
-
-def route_after_critic(state: AgentState) -> str:
-    """Return next node after the critic runs.
-
-    Loops back to synthesis if the score is below threshold and revisions
-    remain; otherwise ends the graph.
-    """
-    score = state.get("critic_score") or 0.0
-    revisions = state.get("revision_count", 0)
-
-    if score >= CRITIC_PASS_THRESHOLD or revisions >= MAX_REVISIONS:
-        return END
-    return "synthesis_agent"

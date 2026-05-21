@@ -25,7 +25,7 @@ export default function ActiveSurface({
   complete,
   resumeSession,
 }: Props) {
-  // ── HITL gates take priority ───────────────────────────────────────────────
+  // ── HITL gates take priority 
   if (pendingGate === 'plan') {
     return (
       <HITLPlanApproval
@@ -44,7 +44,7 @@ export default function ActiveSurface({
     )
   }
 
-  // ── Session complete ───────────────────────────────────────────────────────
+  // ── Session complete ─────
   if (complete) {
     const score     = latestState?.critic_score ?? null
     const abandoned = score !== null && score < 0.75
@@ -95,7 +95,7 @@ export default function ActiveSurface({
     )
   }
 
-  // ── Running: show latest agent output ─────────────────────────────────────
+  // ── Running: show latest agent output ─
   const lastEndEvent = [...events].reverse().find(e => e.type === 'agent_end')
   const lastToolResult = [...events].reverse().find(e => e.type === 'tool_result')
 

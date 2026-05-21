@@ -5,44 +5,69 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.analysis import analysis_node
 from app.agents.critic import critic_node
+from app.agents.finalize import finalize_report_node
 from app.agents.retrieval import retrieval_node
-from app.agents.supervisor import supervisor_node
+from app.agents.supervisor import supervisor_plan_node, supervisor_route_node
 from app.agents.synthesis import synthesis_node
 from app.graph.hitl import (
     hitl_plan_approval_node,
     hitl_source_approval_node,
-    route_after_critic,
 )
 from app.graph.state import AgentState
+
+
+def _route_from_supervisor(state: AgentState) -> str:
+    decisions = state.get("supervisor_decisions", [])
+    if not decisions:
+        return "analysis_agent"
+    latest = decisions[-1]
+    mapping = {
+        "analysis":   "analysis_agent",
+        "retrieval":  "retrieval_agent",
+        "synthesis":  "synthesis_agent",
+        "end":        "finalize_report",
+    }
+    return mapping.get(latest.get("next"), "analysis_agent")
 
 
 def build_graph(checkpointer: AsyncSqliteSaver):
     g = StateGraph(AgentState)
 
-    # ── Nodes ─────────────────────────────────────────────────────────────────
-    g.add_node("supervisor",            supervisor_node)
+    # ── Nodes 
+    g.add_node("supervisor_plan",       supervisor_plan_node)
+    g.add_node("supervisor_route",      supervisor_route_node)
     g.add_node("hitl_plan_approval",    hitl_plan_approval_node)
     g.add_node("retrieval_agent",       retrieval_node)
     g.add_node("hitl_source_approval",  hitl_source_approval_node)
     g.add_node("analysis_agent",        analysis_node)
     g.add_node("synthesis_agent",       synthesis_node)
     g.add_node("critic_agent",          critic_node)
+    g.add_node("finalize_report",       finalize_report_node)
 
-    # ── Static edges (nodes that return plain dicts) ──────────────────────────
-    g.set_entry_point("supervisor")
-    g.add_edge("supervisor",        "hitl_plan_approval")
-    # hitl_plan_approval  → retrieval_agent | END  (via Command inside the node)
+    # ── Edges 
+    g.set_entry_point("supervisor_plan")
+    g.add_edge("supervisor_plan",   "hitl_plan_approval")
+    # hitl_plan_approval → retrieval_agent | END  (via Command inside the node)
+
     g.add_edge("retrieval_agent",   "hitl_source_approval")
-    # hitl_source_approval → analysis_agent        (via Command inside the node)
-    g.add_edge("analysis_agent",    "synthesis_agent")
-    g.add_edge("synthesis_agent",   "critic_agent")
+    # hitl_source_approval → supervisor_route     (via Command inside the node)
 
-    # ── Conditional edge: critic loop ─────────────────────────────────────────
+    # ── Conditional edge from supervisor_route ─
     g.add_conditional_edges(
-        "critic_agent",
-        route_after_critic,
-        {"synthesis_agent": "synthesis_agent", END: END},
+        "supervisor_route",
+        _route_from_supervisor,
+        {
+            "analysis_agent":  "analysis_agent",
+            "retrieval_agent": "retrieval_agent",
+            "synthesis_agent": "synthesis_agent",
+            "finalize_report": "finalize_report",
+        },
     )
+
+    g.add_edge("analysis_agent",  "supervisor_route")
+    g.add_edge("critic_agent",    "supervisor_route")
+    g.add_edge("synthesis_agent", "critic_agent")
+    g.add_edge("finalize_report", END)
 
     return g.compile(checkpointer=checkpointer)
 
@@ -60,9 +85,11 @@ def make_initial_state(session_id: str, query: str) -> AgentState:
         "claims":               [],
         "analysis_gaps":        [],
         "report_draft":         None,
+        "best_report_draft":    None,
         "report_final":         None,
         "report_id":            None,
         "critic_score":         None,
+        "best_critic_score":    None,
         "critic_feedback":      None,
         "revision_count":       0,
         "supervisor_scratchpad":  "",
@@ -72,4 +99,8 @@ def make_initial_state(session_id: str, query: str) -> AgentState:
         "critic_scratchpad":      "",
         "messages":             [],
         "errors":               [],
+        "supervisor_decisions": [],
+        "current_supervisor_instruction": None,
+        "retrieval_attempts":   {},
+        "last_retrieval_new_chunk_count": -1,
     }
