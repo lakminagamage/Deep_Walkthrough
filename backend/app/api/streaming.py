@@ -43,6 +43,20 @@ def format_sse(data: dict) -> str:
     return f"data: {json.dumps(_safe(data))}\n\n"
 
 
+# SSE-safe cap on the supervisor's reasoning text. The full reasoning stays in
+# state (supervisor_scratchpad + supervisor_decisions) and is visible in the
+# State Inspector; only a truncated rationale is streamed to the client.
+_REASONING_SSE_MAX_CHARS = 600
+
+
+def _truncate_reasoning(text: str, limit: int = _REASONING_SSE_MAX_CHARS) -> str:
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "… [truncated — full reasoning in state]"
+
+
 async def emit_supervisor_decision(
     queue: asyncio.Queue,
     decision: "SupervisorDecision",
@@ -51,7 +65,7 @@ async def emit_supervisor_decision(
         "type": "supervisor_decision",
         "stage": decision["stage"],
         "next": decision["next"],
-        "reasoning": decision["reasoning"],
+        "reasoning": _truncate_reasoning(decision["reasoning"]),
         "instruction": decision["instruction"],
         "timestamp": decision["timestamp"],
     })

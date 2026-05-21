@@ -27,7 +27,7 @@ def _route_from_supervisor(state: AgentState) -> str:
         "synthesis":  "synthesis_agent",
         "end":        "finalize_report",
     }
-    return mapping[latest["next"]]
+    return mapping.get(latest.get("next"), "analysis_agent")
 
 
 def build_graph(checkpointer: AsyncSqliteSaver):

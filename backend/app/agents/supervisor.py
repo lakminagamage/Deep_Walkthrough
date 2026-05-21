@@ -279,20 +279,34 @@ async def supervisor_route_node(state: AgentState) -> dict:
     if raw.startswith("```"):
         raw = raw.split("```")[1].lstrip("json").strip()
 
+    # Per-stage allowed values and safe default if the LLM returns something invalid.
+    allowed_next: dict[str, tuple[set[str], str]] = {
+        "post_sources":  ({"analysis", "retrieval"},  "analysis"),
+        "post_analysis": ({"synthesis", "retrieval"}, "synthesis"),
+        "post_critic":   ({"synthesis", "end"},       "end"),
+    }
+    allowed, stage_default = allowed_next[stage]
+
+    raw_next: str | None
     try:
         parsed = json.loads(raw)
         reasoning: str = parsed.get("reasoning", "")
-        next_step: str = parsed.get("next", "analysis")
+        raw_next = parsed.get("next")
         instruction: str | None = parsed.get("instruction") or None
     except (json.JSONDecodeError, ValueError):
         reasoning = raw
-        # Safe fallbacks per stage
-        next_step = (
-            "analysis" if stage == "post_sources"
-            else "synthesis" if stage == "post_analysis"
-            else "end"
-        )
+        raw_next = None
         instruction = None
+
+    if raw_next in allowed:
+        next_step: str = raw_next
+    else:
+        next_step = stage_default
+        reasoning = (
+            f"[supervisor clamp] LLM returned next={raw_next!r} which is not valid "
+            f"for stage {stage} (allowed: {sorted(allowed)}). "
+            f"Falling back to {stage_default!r}.\n\n" + reasoning
+        )
 
     llm_decision: SupervisorDecision = {
         "stage": stage,
